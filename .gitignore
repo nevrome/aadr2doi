@@ -1,0 +1,6 @@
+docs/_build/
+.stack-work/
+*.prof
+.Rproj.user
+.Rhistory
+dist-newstyle/
