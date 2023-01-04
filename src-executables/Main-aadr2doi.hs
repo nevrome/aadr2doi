@@ -5,13 +5,13 @@
 
 import qualified Network.HTTP.Client     as H
 import qualified Network.HTTP.Client.TLS as H
-import           Control.Exception                  (catch, Exception)
+import           Control.Exception                  (catch, Exception, throwIO)
 import           Data.Version                       (showVersion, makeVersion)
 import qualified Options.Applicative                as OP
 import           System.Exit                        (exitFailure)
 import           System.IO                          (hPutStrLn, stderr, stdout, hGetEncoding)
 import Data.ByteString (breakSubstring)
-import Data.ByteString.Lazy (toStrict)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Text.Regex.TDFA as R
 import Data.ByteString (ByteString)
 import Text.Regex.TDFA ((=~))
@@ -19,6 +19,8 @@ import Text.Regex.TDFA ((=~))
 --import qualified Data.Text.Encoding as T
 import qualified Data.ByteString as B
 import qualified Data.HashMap.Strict as M
+import Control.Exception.Base (try)
+import Data.Bits (Bits(xor))
 
 
 version = makeVersion [0,0,0]
@@ -30,15 +32,15 @@ data Options = CmdAADR2DOI AADR2DOIoptions
 
 -- | Different exceptions for aadr2doi
 data AADR2DOIException =
-      TestException String -- ^ An exception to ...
-    | TestException2 String -- ^ An exception to ...
+      WebAccessException H.HttpException
+    | KeyNotThereException ByteString
     deriving (Show)
 
 renderAADR2DOIException :: AADR2DOIException -> String 
-renderAADR2DOIException (TestException s) = 
-    "<!> Error: " ++ s
-renderAADR2DOIException (TestException2 s) =
-    "<!> Error: " ++ s
+renderAADR2DOIException (KeyNotThereException s) = 
+    "Error: Paper key " ++ show s ++ " not available or no DOI on the AADR website"
+renderAADR2DOIException (WebAccessException e) = 
+    "Error: Can't connect to the AADR website\n" ++ show e
 
 instance Exception AADR2DOIException
 
@@ -85,10 +87,13 @@ optParsePaperKey = OP.strOption (
 
 -----
 
-data DOI = DOI String deriving Show
+newtype DOI = DOI ByteString deriving Show
 
-renderDOI :: DOI -> String
-renderDOI (DOI x) = "https://doi.org" ++ x
+renderLongDOI :: DOI -> ByteString
+renderLongDOI (DOI x) = "https://doi.org/" <> x
+
+renderShortDOI :: DOI -> ByteString
+renderShortDOI (DOI x) = x
 
 --makeDOI :: ByteString -> DOI
 --makeDOI x = DOI (B.unpack x)
@@ -99,35 +104,38 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
     hPutStrLn stderr "Downloading citation list"
     httpman <- H.newManager H.tlsManagerSettings
     let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
-    response <- H.httpLbs req httpman
-    let responseBody = toStrict $ H.responseBody response
-    -- extract paper paragraphs
-    hPutStrLn stderr "Extracting individual papers"
-    let (_,referenceSection) = breakSubstring "References:" responseBody
-        separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
-        fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
-        paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
-    hPutStrLn stderr $ "Found " ++ show (length paperStrings) ++ " papers"
-    -- extract paper keys and dois
-    hPutStrLn stderr $ "Extracting paper keys and DOIs"
-    let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
-        paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
-        paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
-        -- see: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
-        paperDOIs = map (\x -> removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw :: [ByteString]
-        -- debugging:
-        --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
-        --mapM_ (\x -> print x) hu
-    -- define hashmap of valid papers
-    hPutStrLn stderr $ "Removing papers with missing DOI"
-    let presumablyValidPapers = filter (\(k,d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
-    hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
-    let papersHashMap = M.fromList presumablyValidPapers
-    -- perform lookup
-    hPutStrLn stderr $ "Performing DOI lookup for each requested key"
-    case M.lookup toLookup papersHashMap of
-        Nothing -> error "mist"
-        Just x -> print x
+    eitherResponse <- (try $ H.httpLbs req httpman) :: IO (Either H.HttpException (H.Response BSL.ByteString))
+    case eitherResponse of
+        Left x -> throwIO $ WebAccessException x
+        Right response -> do
+            let responseBody = BSL.toStrict $ H.responseBody response
+            -- extract paper paragraphs
+            hPutStrLn stderr "Extracting individual papers"
+            let (_,referenceSection) = breakSubstring "References:" responseBody
+                separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
+                fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
+                paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
+            hPutStrLn stderr $ "Found " ++ show (length paperStrings) ++ " papers"
+            -- extract paper keys and dois
+            hPutStrLn stderr $ "Extracting paper keys and DOIs"
+            let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
+                paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
+                paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
+                -- see: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
+                paperDOIs = map (\x -> DOI $ removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw
+                -- debugging:
+                --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
+                --mapM_ (\x -> print x) hu
+            -- define hashmap of valid papers
+            hPutStrLn stderr $ "Removing papers with missing DOI"
+            let presumablyValidPapers = filter (\(k,DOI d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
+            hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
+            let papersHashMap = M.fromList presumablyValidPapers
+            -- perform lookup
+            hPutStrLn stderr $ "Performing DOI lookup for each requested key"
+            case M.lookup toLookup papersHashMap of
+                Nothing -> throwIO $ KeyNotThereException toLookup
+                Just x -> hPutStrLn stdout $ show $ renderLongDOI x
 
 
 
