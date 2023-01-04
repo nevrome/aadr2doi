@@ -25,6 +25,10 @@ executable aadr2doi
         base
       , optparse-applicative >= 0.16 && < 0.18
       , filepath
+      , http-client
+      , http-client-tls
+      , bytestring
+      , regex-tdfa
     default-language:
       Haskell2010
     ghc-options: 

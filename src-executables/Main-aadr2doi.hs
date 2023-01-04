@@ -2,18 +2,29 @@
 
 --import           Paths_aadr2doi                     (version)
 
+import qualified Network.HTTP.Client     as H
+import qualified Network.HTTP.Client.TLS as H
 import           Control.Exception                  (catch, Exception)
 import           Data.Version                       (showVersion, makeVersion)
 import qualified Options.Applicative                as OP
 import           System.Exit                        (exitFailure)
 import           System.IO                          (hPutStrLn, stderr, stdout, hGetEncoding)
+import Data.ByteString (breakSubstring)
+import Data.ByteString.Lazy (toStrict)
+import qualified Text.Regex.TDFA as R
+import Data.ByteString (ByteString)
+import Text.Regex.TDFA ((=~))
+--import qualified Data.Text as T
+--import qualified Data.Text.Encoding as T
+import qualified Data.ByteString as B
+
 
 version = makeVersion [0,0,0]
 
 -- data types
-data A2Doptions = A2Doptions Bool
+data AADR2DOIoptions = AADR2DOIoptions Bool
 
-data Options = CmdAADR2DOI A2Doptions
+data Options = CmdAADR2DOI AADR2DOIoptions
 
 -- | Different exceptions for aadr2doi
 data AADR2DOIException =
@@ -59,8 +70,8 @@ versionOption = OP.infoOption (showVersion version) (OP.long "version" <> OP.hel
 optParser :: OP.Parser Options
 optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
-aadr2doiOptParser :: OP.Parser A2Doptions
-aadr2doiOptParser = A2Doptions <$> optParseQuiet
+aadr2doiOptParser :: OP.Parser AADR2DOIoptions
+aadr2doiOptParser = AADR2DOIoptions <$> optParseQuiet
 
 optParseQuiet :: OP.Parser Bool
 optParseQuiet = OP.switch (
@@ -72,6 +83,31 @@ optParseQuiet = OP.switch (
 
 -----
 
-runAADR2DOI :: A2Doptions -> IO ()
-runAADR2DOI _ = putStrLn "huhu"
+runAADR2DOI :: AADR2DOIoptions -> IO ()
+runAADR2DOI _ = do
+    httpman <- H.newManager H.tlsManagerSettings
+    let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
+    response <- H.httpLbs req httpman
+    let responseBody = toStrict $ H.responseBody response
+    let (_,referenceSection) = breakSubstring "References:" responseBody
+    let separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
+    let fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
+    let paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
+    let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
+    let paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
+    let paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
+    --https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
+    let paperDOIs = map (\x -> removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw :: [ByteString]
+    --let paperDOIs = map (removeFromStartAndEnd 5 2) paperDOIsRaw
+    let hu = zip3 paperKeys paperDOIsRaw paperDOIs
+    mapM_ (\x -> print x) hu
+    --print $ paperStrings
 
+removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
+removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
+
+removeTrailingDotAndSpace :: ByteString -> ByteString
+removeTrailingDotAndSpace x1 = 
+    let x2 = if B.take 2 (B.reverse x1) == ". " then removeFromStartAndEnd 0 2 x1 else x1
+        x3 = if B.take 1 (B.reverse x2) == "."  then removeFromStartAndEnd 0 1 x2 else x2
+    in x3
