@@ -117,7 +117,7 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
                 paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
             hPutStrLn stderr $ "Found " ++ show (length paperStrings) ++ " papers"
             -- extract paper keys and dois
-            hPutStrLn stderr $ "Extracting paper keys and DOIs"
+            hPutStrLn stderr "Extracting paper keys and DOIs"
             let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
                 paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
                 paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
@@ -127,15 +127,16 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
                 --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
                 --mapM_ (\x -> print x) hu
             -- define hashmap of valid papers
-            hPutStrLn stderr $ "Removing papers with missing DOI"
+            hPutStrLn stderr "Removing papers with missing DOI"
             let presumablyValidPapers = filter (\(k,DOI d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
             hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
             let papersHashMap = M.fromList presumablyValidPapers
             -- perform lookup
-            hPutStrLn stderr $ "Performing DOI lookup for each requested key"
+            hPutStrLn stderr "Performing DOI lookup for each requested key"
+            hPutStrLn stderr "---"
             case M.lookup toLookup papersHashMap of
                 Nothing -> throwIO $ KeyNotThereException toLookup
-                Just x -> hPutStrLn stdout $ show $ renderLongDOI x
+                Just x -> B.putStr $ renderLongDOI x <> "\n"
 
 
 
