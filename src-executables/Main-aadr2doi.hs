@@ -85,19 +85,31 @@ optParsePaperKey = OP.strOption (
 
 -----
 
+data DOI = DOI String deriving Show
+
+renderDOI :: DOI -> String
+renderDOI (DOI x) = "https://doi.org" ++ x
+
+--makeDOI :: ByteString -> DOI
+--makeDOI x = DOI (B.unpack x)
+
 runAADR2DOI :: AADR2DOIoptions -> IO ()
 runAADR2DOI (AADR2DOIoptions toLookup) = do
     -- download html document
+    hPutStrLn stderr "Downloading citation list"
     httpman <- H.newManager H.tlsManagerSettings
     let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
     response <- H.httpLbs req httpman
     let responseBody = toStrict $ H.responseBody response
     -- extract paper paragraphs
+    hPutStrLn stderr "Extracting individual papers"
     let (_,referenceSection) = breakSubstring "References:" responseBody
         separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
         fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
         paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
+    hPutStrLn stderr $ "Found " ++ show (length paperStrings) ++ " papers"
     -- extract paper keys and dois
+    hPutStrLn stderr $ "Extracting paper keys and DOIs"
     let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
         paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
         paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
@@ -107,9 +119,12 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
         --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
         --mapM_ (\x -> print x) hu
     -- define hashmap of valid papers
+    hPutStrLn stderr $ "Removing papers with missing DOI"
     let presumablyValidPapers = filter (\(k,d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
+    hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
     let papersHashMap = M.fromList presumablyValidPapers
     -- perform lookup
+    hPutStrLn stderr $ "Performing DOI lookup for each requested key"
     case M.lookup toLookup papersHashMap of
         Nothing -> error "mist"
         Just x -> print x
