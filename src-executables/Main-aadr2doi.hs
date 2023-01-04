@@ -18,12 +18,13 @@ import Text.Regex.TDFA ((=~))
 --import qualified Data.Text as T
 --import qualified Data.Text.Encoding as T
 import qualified Data.ByteString as B
+import qualified Data.HashMap.Strict as M
 
 
 version = makeVersion [0,0,0]
 
 -- data types
-data AADR2DOIoptions = AADR2DOIoptions Bool
+data AADR2DOIoptions = AADR2DOIoptions ByteString
 
 data Options = CmdAADR2DOI AADR2DOIoptions
 
@@ -72,25 +73,20 @@ optParser :: OP.Parser Options
 optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
 aadr2doiOptParser :: OP.Parser AADR2DOIoptions
-aadr2doiOptParser = AADR2DOIoptions <$> optParseQuiet
+aadr2doiOptParser = AADR2DOIoptions <$> optParsePaperKey
 
-optParseQuiet :: OP.Parser Bool
-optParseQuiet = OP.switch (
-    OP.long "quiet" <> 
-    OP.short 'q' <>
-    OP.help "Suppress the printing of ..."
+optParsePaperKey :: OP.Parser ByteString
+optParsePaperKey = OP.strOption (
+    OP.long "key" <> 
+    OP.short 'k' <>
+    OP.help "..."
     )
 
 
 -----
 
-data Paper = Paper {
-      _paperKey :: ByteString
-    , _paperDOI :: ByteString
-} deriving (Show, Eq)
-
 runAADR2DOI :: AADR2DOIoptions -> IO ()
-runAADR2DOI _ = do
+runAADR2DOI (AADR2DOIoptions toLookup) = do
     -- download html document
     httpman <- H.newManager H.tlsManagerSettings
     let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
@@ -107,13 +103,19 @@ runAADR2DOI _ = do
         paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
         -- see: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
         paperDOIs = map (\x -> removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw :: [ByteString]
-    -- define valid papers
+        -- debugging:
+        --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
+        --mapM_ (\x -> print x) hu
+    -- define hashmap of valid papers
     let presumablyValidPapers = filter (\(k,d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
-    let papers = map (uncurry Paper) presumablyValidPapers
-    --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
-    --mapM_ (\x -> print x) hu
-    --print $ paperStrings
-    print papers
+    let papersHashMap = M.fromList presumablyValidPapers
+    -- perform lookup
+    case M.lookup toLookup papersHashMap of
+        Nothing -> error "mist"
+        Just x -> print x
+
+
+
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs

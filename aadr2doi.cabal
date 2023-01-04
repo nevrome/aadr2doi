@@ -29,6 +29,7 @@ executable aadr2doi
       , http-client-tls
       , bytestring
       , regex-tdfa
+      , unordered-containers
     default-language:
       Haskell2010
     ghc-options: 
