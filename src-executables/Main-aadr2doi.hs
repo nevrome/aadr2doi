@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StrictData #-}
 
 --import           Paths_aadr2doi                     (version)
 
@@ -83,25 +84,36 @@ optParseQuiet = OP.switch (
 
 -----
 
+data Paper = Paper {
+      _paperKey :: ByteString
+    , _paperDOI :: ByteString
+} deriving (Show, Eq)
+
 runAADR2DOI :: AADR2DOIoptions -> IO ()
 runAADR2DOI _ = do
+    -- download html document
     httpman <- H.newManager H.tlsManagerSettings
     let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
     response <- H.httpLbs req httpman
     let responseBody = toStrict $ H.responseBody response
+    -- extract paper paragraphs
     let (_,referenceSection) = breakSubstring "References:" responseBody
-    let separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
-    let fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
-    let paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
+        separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
+        fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
+        paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
+    -- extract paper keys and dois
     let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
-    let paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
-    let paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
-    --https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
-    let paperDOIs = map (\x -> removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw :: [ByteString]
-    --let paperDOIs = map (removeFromStartAndEnd 5 2) paperDOIsRaw
-    let hu = zip3 paperKeys paperDOIsRaw paperDOIs
-    mapM_ (\x -> print x) hu
+        paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
+        paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
+        -- see: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
+        paperDOIs = map (\x -> removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw :: [ByteString]
+    -- define valid papers
+    let presumablyValidPapers = filter (\(k,d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
+    let papers = map (uncurry Paper) presumablyValidPapers
+    --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
+    --mapM_ (\x -> print x) hu
     --print $ paperStrings
+    print papers
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
