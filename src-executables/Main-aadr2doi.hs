@@ -39,12 +39,14 @@ renderAADR2DOIException (WebAccessException e) =
 
 instance Exception AADR2DOIException
 
+data Options = CmdAADR2DOI AADR2DOIOptions
+
 data AADR2DOIOptions = AADR2DOIOptions {
-      _requestedPaperKeys :: ByteString
+      _requested :: DOIRequest
     , _aadrVersion :: String
 }
 
-data Options = CmdAADR2DOI AADR2DOIOptions
+data DOIRequest = Keys ByteString | ListAll
 
 -- CLI interface configuration
 main :: IO ()
@@ -77,13 +79,23 @@ optParser :: OP.Parser Options
 optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
 aadr2doiOptParser :: OP.Parser AADR2DOIOptions
-aadr2doiOptParser = AADR2DOIOptions <$> optParsePaperKey
+aadr2doiOptParser = AADR2DOIOptions <$> optParseDOIRequest
                                     <*> optAADRVersion
+
+optParseDOIRequest :: OP.Parser DOIRequest
+optParseDOIRequest = (Keys <$> optParsePaperKey) OP.<|> (optParseListAll *> pure ListAll)
 
 optParsePaperKey :: OP.Parser ByteString
 optParsePaperKey = OP.strOption (
     OP.long "key" <>
     OP.short 'k' <>
+    OP.help "..."
+    )
+
+optParseListAll :: OP.Parser ()
+optParseListAll = OP.flag' () (
+    OP.long "list" <>
+    OP.short 'l' <>
     OP.help "..."
     )
 
@@ -141,12 +153,19 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion) = do
             let presumablyValidPapers = filter (\(k,DOI d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
             hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
             let papersHashMap = M.fromList presumablyValidPapers
-            -- perform lookup
-            hPutStrLn stderr "Performing DOI lookup for each requested key"
-            hPutStrLn stderr "---"
-            case M.lookup toLookup papersHashMap of
-                Nothing -> throwIO $ KeyNotThereException toLookup
-                Just x  -> B.putStr $ renderLongDOI x <> "\n"
+            -- prepare output
+            case toLookup of
+                ListAll -> do
+                    hPutStrLn stderr "Preparing table output"
+                    hPutStrLn stderr "---"
+                    print papersHashMap
+                Keys x -> do
+                    -- perform lookup
+                    hPutStrLn stderr "Performing DOI lookup for each requested key"
+                    hPutStrLn stderr "---"
+                    case M.lookup x papersHashMap of
+                        Nothing -> throwIO $ KeyNotThereException x
+                        Just x  -> B.putStr $ renderLongDOI x <> "\n"
 
 
 
