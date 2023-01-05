@@ -186,11 +186,17 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape aadrVersion outFile) = do
             hPutStrLn stderr $ "Kept " ++ show (length presumablyValidPapers) ++ " papers"
             let papersHashMap = M.fromList presumablyValidPapers
             -- prepare output
+            case outFile of
+                Nothing -> return ()
+                Just p  -> hPutStrLn stderr $ "Appending results to file " ++ p
             case toLookup of
                 ListAll -> do
-                    hPutStrLn stderr "Preparing table output"
+                    hPutStrLn stderr "Writing table output"
                     hPutStrLn stderr "---"
-                    mapM_ (\(k,d) -> B.putStr $ k <> "\t" <> renderDOI doiShape d <> "\n") presumablyValidPapers
+                    let table = map (\(k,d) -> k <> "\t" <> renderDOI doiShape d <> "\n") presumablyValidPapers
+                    case outFile of
+                        Nothing -> mapM_ B.putStr table
+                        Just p  -> mapM_ (B.appendFile p) table
                 Keys requestedKeys -> do
                     B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
