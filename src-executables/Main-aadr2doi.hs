@@ -20,6 +20,7 @@ import           System.IO               (hGetEncoding, hPutStrLn, stderr,
 import           Text.Regex.TDFA         ((=~))
 import qualified Text.Regex.TDFA         as R
 import Data.ByteString.UTF8 (fromString)
+import qualified Data.ByteString.Char8 as BC8
 
 version = makeVersion [0,0,0]
 
@@ -44,9 +45,10 @@ data Options = CmdAADR2DOI AADR2DOIOptions
 data AADR2DOIOptions = AADR2DOIOptions {
       _requested :: DOIRequest
     , _aadrVersion :: String
+    , _outFile :: Maybe FilePath
 }
 
-data DOIRequest = Keys [ByteString] | ListAll
+data DOIRequest = ListAll | Keys [ByteString] | KeyFile FilePath
 
 -- CLI interface configuration
 main :: IO ()
@@ -80,10 +82,11 @@ optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
 aadr2doiOptParser :: OP.Parser AADR2DOIOptions
 aadr2doiOptParser = AADR2DOIOptions <$> optParseDOIRequest
-                                    <*> optAADRVersion
+                                    <*> optParseAADRVersion
+                                    <*> optParseOutFile
 
 optParseDOIRequest :: OP.Parser DOIRequest
-optParseDOIRequest = (Keys <$> optParsePaperKey) OP.<|> (optParseListAll *> pure ListAll)
+optParseDOIRequest = (Keys <$> optParsePaperKey) OP.<|> (KeyFile <$> optParseKeyFile) OP.<|> (optParseListAll *> pure ListAll)
 
 optParsePaperKey :: OP.Parser [ByteString]
 optParsePaperKey = OP.option (OP.eitherReader readKeysString) (
@@ -95,6 +98,13 @@ optParsePaperKey = OP.option (OP.eitherReader readKeysString) (
         readKeysString :: String -> Either String [ByteString]
         readKeysString s = Right $ B.split 44 $ fromString s
 
+optParseKeyFile :: OP.Parser FilePath
+optParseKeyFile = OP.strOption (
+    OP.long "inFile" <>
+    OP.short 'i' <>
+    OP.help "..."
+    )
+
 optParseListAll :: OP.Parser ()
 optParseListAll = OP.flag' () (
     OP.long "list" <>
@@ -102,11 +112,18 @@ optParseListAll = OP.flag' () (
     OP.help "..."
     )
 
-optAADRVersion :: OP.Parser String
-optAADRVersion = OP.strOption (
+optParseAADRVersion :: OP.Parser String
+optParseAADRVersion = OP.strOption (
     OP.long "aadrVersion" <>
     OP.help "One of: 54.1, 52.2, 50.0, 50.0, 44.3, 42.4" <>
     OP.value "54.1"
+    )
+
+optParseOutFile :: OP.Parser (Maybe FilePath)
+optParseOutFile = OP.option (Just <$> OP.str) (
+    OP.long "outFile" <>
+    OP.short 'o' <>
+    OP.value Nothing
     )
 
 -----
@@ -123,7 +140,7 @@ renderShortDOI (DOI x) = x
 --makeDOI x = DOI (B.unpack x)
 
 runAADR2DOI :: AADR2DOIOptions -> IO ()
-runAADR2DOI (AADR2DOIOptions toLookup aadrVersion) = do
+runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
     -- download html document
     hPutStrLn stderr $ "Downloading citation list for AADR version " ++ aadrVersion
     httpman <- H.newManager H.tlsManagerSettings
@@ -162,20 +179,26 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion) = do
                     hPutStrLn stderr "Preparing table output"
                     hPutStrLn stderr "---"
                     print papersHashMap
-                Keys xs -> do
-                    -- perform lookup
+                Keys requestedKeys -> do
+                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    mapM_ performLookup xs 
-                    where
-                        performLookup :: ByteString -> IO ()
-                        performLookup x = case M.lookup x papersHashMap of
-                            Nothing -> throwIO $ KeyNotThereException x
-                            Just x  -> B.putStr $ renderLongDOI x <> "\n"
-                    
-
-
-
+                    mapM_ (performLookup papersHashMap) requestedKeys
+                KeyFile p -> do
+                    hPutStrLn stderr $ "Reading file " ++ p
+                    inputFromFile <- B.readFile p
+                    let requestedKeys = BC8.lines inputFromFile
+                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
+                    hPutStrLn stderr "Performing DOI lookup for each requested key"
+                    hPutStrLn stderr "---"
+                    mapM_ (performLookup papersHashMap) requestedKeys
+            where
+                performLookup :: M.HashMap ByteString DOI -> ByteString -> IO ()
+                performLookup papersHashMap x = case M.lookup x papersHashMap of
+                    Nothing -> hPutStrLn stderr $ renderAADR2DOIException $ KeyNotThereException x
+                    Just x  -> case outFile of
+                        Nothing -> B.putStr $ renderLongDOI x <> "\n"
+                        Just p -> B.appendFile p $ renderLongDOI x <> "\n"
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
