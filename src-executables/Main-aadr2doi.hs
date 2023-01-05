@@ -40,6 +40,7 @@ newtype Options = CmdAADR2DOI AADR2DOIOptions
 data AADR2DOIOptions = AADR2DOIOptions {
       _requested   :: DOIRequest
     , _doiShape    :: DOIShape
+    , _printKey    :: Bool
     , _aadrVersion :: String
     , _outFile     :: Maybe FilePath
 }
@@ -79,6 +80,7 @@ optParser = CmdAADR2DOI <$> aadr2doiOptParser
 aadr2doiOptParser :: OP.Parser AADR2DOIOptions
 aadr2doiOptParser = AADR2DOIOptions <$> optParseDOIRequest
                                     <*> optParseDOIOutShape
+                                    <*> optParsePrintKey
                                     <*> optParseAADRVersion
                                     <*> optParseOutFile
 
@@ -124,6 +126,11 @@ optParseDOIOutShape = OP.option (OP.eitherReader readDOIShape) (
             "Long"  -> Right Long
             _       -> Left "must be short or long"
 
+optParsePrintKey :: OP.Parser Bool
+optParsePrintKey = OP.switch (
+    OP.long "printKey" <>
+    OP.help "Print the input paper keys again as part of the output"
+    )
 
 optParseAADRVersion :: OP.Parser String
 optParseAADRVersion = OP.strOption (
@@ -152,7 +159,7 @@ renderDOI Short (DOI x) = x
 renderDOI Long (DOI x)  = "https://doi.org/" <> x
 
 runAADR2DOI :: AADR2DOIOptions -> IO ()
-runAADR2DOI (AADR2DOIOptions toLookup doiShape aadrVersion outFile) = do
+runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = do
     -- download html document
     hPutStrLn stderr $ "Downloading citation list for AADR version " ++ aadrVersion
     httpman <- H.newManager H.tlsManagerSettings
@@ -215,9 +222,17 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape aadrVersion outFile) = do
                 performLookup :: M.HashMap ByteString DOI -> ByteString -> IO ()
                 performLookup papersHashMap x = case M.lookup x papersHashMap of
                     Nothing -> hPutStrLn stderr $ renderAADR2DOIException $ KeyNotThereException x
-                    Just d  -> case outFile of
-                        Nothing -> B.putStr $ renderDOI doiShape d <> "\n"
-                        Just p  -> B.appendFile p $ renderDOI doiShape d <> "\n"
+                    Just d  -> writeResult x d
+                writeResult :: ByteString -> DOI -> IO ()
+                writeResult key doi = do
+                    let doiPretty = renderDOI doiShape doi
+                        outLine =
+                            if printKey
+                            then key <> "\t" <> doiPretty <> "\n"
+                            else doiPretty <> "\n"
+                    case outFile of
+                        Nothing -> B.putStr outLine
+                        Just p  -> B.appendFile p outLine
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
