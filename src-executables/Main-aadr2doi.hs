@@ -5,20 +5,18 @@ import           Paths_aadr2doi          (version)
 
 import           Control.Exception       (Exception, catch, throwIO)
 import           Control.Exception.Base  (try)
-import           Data.Bits               (Bits (xor))
 import           Data.ByteString         (ByteString)
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Char8   as BC8
 import qualified Data.ByteString.Lazy    as BSL
 import           Data.ByteString.UTF8    (fromString)
 import qualified Data.HashMap.Strict     as M
-import           Data.Version            (makeVersion, showVersion)
+import           Data.Version            (showVersion)
 import qualified Network.HTTP.Client     as H
 import qualified Network.HTTP.Client.TLS as H
 import qualified Options.Applicative     as OP
 import           System.Exit             (exitFailure)
-import           System.IO               (hGetEncoding, hPutStrLn, stderr,
-                                          stdout)
+import           System.IO               (hPutStrLn, stderr)
 import qualified Text.Regex.TDFA         as R
 import           Text.Regex.TDFA         ((=~))
 
@@ -151,7 +149,7 @@ data DOIShape = Short | Long deriving Show
 
 renderDOI :: DOIShape -> DOI -> ByteString
 renderDOI Short (DOI x) = x
-renderDOI Long (DOI x) = "https://doi.org/" <> x
+renderDOI Long (DOI x)  = "https://doi.org/" <> x
 
 runAADR2DOI :: AADR2DOIOptions -> IO ()
 runAADR2DOI (AADR2DOIOptions toLookup doiShape aadrVersion outFile) = do
