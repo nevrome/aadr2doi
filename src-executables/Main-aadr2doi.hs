@@ -1,26 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE StrictData        #-}
 
 --import           Paths_aadr2doi                     (version)
 
+import           Control.Exception       (Exception, catch, throwIO)
+import           Control.Exception.Base  (try)
+import           Data.Bits               (Bits (xor))
+import           Data.ByteString         (ByteString)
+import qualified Data.ByteString         as B
+import qualified Data.ByteString.Lazy    as BSL
+import qualified Data.HashMap.Strict     as M
+import           Data.Version            (makeVersion, showVersion)
 import qualified Network.HTTP.Client     as H
 import qualified Network.HTTP.Client.TLS as H
-import           Control.Exception                  (catch, Exception, throwIO)
-import           Data.Version                       (showVersion, makeVersion)
-import qualified Options.Applicative                as OP
-import           System.Exit                        (exitFailure)
-import           System.IO                          (hPutStrLn, stderr, stdout, hGetEncoding)
-import Data.ByteString (breakSubstring)
-import qualified Data.ByteString.Lazy as BSL
-import qualified Text.Regex.TDFA as R
-import Data.ByteString (ByteString)
-import Text.Regex.TDFA ((=~))
---import qualified Data.Text as T
---import qualified Data.Text.Encoding as T
-import qualified Data.ByteString as B
-import qualified Data.HashMap.Strict as M
-import Control.Exception.Base (try)
-import Data.Bits (Bits(xor))
+import qualified Options.Applicative     as OP
+import           System.Exit             (exitFailure)
+import           System.IO               (hGetEncoding, hPutStrLn, stderr,
+                                          stdout)
+import           Text.Regex.TDFA         ((=~))
+import qualified Text.Regex.TDFA         as R
 
 
 version = makeVersion [0,0,0]
@@ -36,10 +34,10 @@ data AADR2DOIException =
     | KeyNotThereException ByteString
     deriving (Show)
 
-renderAADR2DOIException :: AADR2DOIException -> String 
-renderAADR2DOIException (KeyNotThereException s) = 
+renderAADR2DOIException :: AADR2DOIException -> String
+renderAADR2DOIException (KeyNotThereException s) =
     "Error: Paper key " ++ show s ++ " not available or no DOI on the AADR website"
-renderAADR2DOIException (WebAccessException e) = 
+renderAADR2DOIException (WebAccessException e) =
     "Error: Can't connect to the AADR website\n" ++ show e
 
 instance Exception AADR2DOIException
@@ -79,7 +77,7 @@ aadr2doiOptParser = AADR2DOIoptions <$> optParsePaperKey
 
 optParsePaperKey :: OP.Parser ByteString
 optParsePaperKey = OP.strOption (
-    OP.long "key" <> 
+    OP.long "key" <>
     OP.short 'k' <>
     OP.help "..."
     )
@@ -111,7 +109,7 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
             let responseBody = BSL.toStrict $ H.responseBody response
             -- extract paper paragraphs
             hPutStrLn stderr "Extracting individual papers"
-            let (_,referenceSection) = breakSubstring "References:" responseBody
+            let (_,referenceSection) = B.breakSubstring "References:" responseBody
                 separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
                 fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
                 paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
@@ -136,7 +134,7 @@ runAADR2DOI (AADR2DOIoptions toLookup) = do
             hPutStrLn stderr "---"
             case M.lookup toLookup papersHashMap of
                 Nothing -> throwIO $ KeyNotThereException toLookup
-                Just x -> B.putStr $ renderLongDOI x <> "\n"
+                Just x  -> B.putStr $ renderLongDOI x <> "\n"
 
 
 
@@ -145,7 +143,7 @@ removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
 
 removeTrailingDotAndSpace :: ByteString -> ByteString
-removeTrailingDotAndSpace x1 = 
+removeTrailingDotAndSpace x1 =
     let x2 = if B.take 2 (B.reverse x1) == ". " then removeFromStartAndEnd 0 2 x1 else x1
         x3 = if B.take 1 (B.reverse x2) == "."  then removeFromStartAndEnd 0 1 x2 else x2
     in x3
