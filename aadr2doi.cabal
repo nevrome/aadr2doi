@@ -30,6 +30,8 @@ executable aadr2doi
       , bytestring
       , regex-tdfa
       , unordered-containers
+      , parsec
+      , utf8-string
     default-language:
       Haskell2010
     ghc-options: 

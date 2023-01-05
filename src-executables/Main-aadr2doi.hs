@@ -19,7 +19,7 @@ import           System.IO               (hGetEncoding, hPutStrLn, stderr,
                                           stdout)
 import           Text.Regex.TDFA         ((=~))
 import qualified Text.Regex.TDFA         as R
-
+import Data.ByteString.UTF8 (fromString)
 
 version = makeVersion [0,0,0]
 
@@ -46,7 +46,7 @@ data AADR2DOIOptions = AADR2DOIOptions {
     , _aadrVersion :: String
 }
 
-data DOIRequest = Keys ByteString | ListAll
+data DOIRequest = Keys [ByteString] | ListAll
 
 -- CLI interface configuration
 main :: IO ()
@@ -85,12 +85,15 @@ aadr2doiOptParser = AADR2DOIOptions <$> optParseDOIRequest
 optParseDOIRequest :: OP.Parser DOIRequest
 optParseDOIRequest = (Keys <$> optParsePaperKey) OP.<|> (optParseListAll *> pure ListAll)
 
-optParsePaperKey :: OP.Parser ByteString
-optParsePaperKey = OP.strOption (
-    OP.long "key" <>
+optParsePaperKey :: OP.Parser [ByteString]
+optParsePaperKey = OP.option (OP.eitherReader readKeysString) (
+    OP.long "keys" <>
     OP.short 'k' <>
     OP.help "..."
     )
+    where
+        readKeysString :: String -> Either String [ByteString]
+        readKeysString s = Right $ B.split 44 $ fromString s
 
 optParseListAll :: OP.Parser ()
 optParseListAll = OP.flag' () (
@@ -159,13 +162,17 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion) = do
                     hPutStrLn stderr "Preparing table output"
                     hPutStrLn stderr "---"
                     print papersHashMap
-                Keys x -> do
+                Keys xs -> do
                     -- perform lookup
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    case M.lookup x papersHashMap of
-                        Nothing -> throwIO $ KeyNotThereException x
-                        Just x  -> B.putStr $ renderLongDOI x <> "\n"
+                    mapM_ performLookup xs 
+                    where
+                        performLookup :: ByteString -> IO ()
+                        performLookup x = case M.lookup x papersHashMap of
+                            Nothing -> throwIO $ KeyNotThereException x
+                            Just x  -> B.putStr $ renderLongDOI x <> "\n"
+                    
 
 
 
