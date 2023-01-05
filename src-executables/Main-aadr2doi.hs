@@ -41,6 +41,7 @@ newtype Options = CmdAADR2DOI AADR2DOIOptions
 
 data AADR2DOIOptions = AADR2DOIOptions {
       _requested   :: DOIRequest
+    , _doiShape    :: DOIShape
     , _aadrVersion :: String
     , _outFile     :: Maybe FilePath
 }
@@ -79,6 +80,7 @@ optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
 aadr2doiOptParser :: OP.Parser AADR2DOIOptions
 aadr2doiOptParser = AADR2DOIOptions <$> optParseDOIRequest
+                                    <*> optParseDOIOutShape
                                     <*> optParseAADRVersion
                                     <*> optParseOutFile
 
@@ -109,6 +111,20 @@ optParseListAll = OP.flag' () (
     OP.help "..."
     )
 
+optParseDOIOutShape :: OP.Parser DOIShape
+optParseDOIOutShape = OP.option (OP.eitherReader readDOIShape) (
+    OP.long "doiShape" <>
+    OP.help "..." <>
+    OP.value Long
+    )
+    where
+        readDOIShape :: String -> Either String DOIShape
+        readDOIShape s = case s of
+            "short" -> Right Short
+            "long"  -> Right Long
+            _       -> Left "must be short or long"
+
+
 optParseAADRVersion :: OP.Parser String
 optParseAADRVersion = OP.strOption (
     OP.long "aadrVersion" <>
@@ -120,21 +136,22 @@ optParseOutFile :: OP.Parser (Maybe FilePath)
 optParseOutFile = OP.option (Just <$> OP.str) (
     OP.long "outFile" <>
     OP.short 'o' <>
-    OP.value Nothing
+    OP.value Nothing <>
+    OP.showDefault
     )
 
 -- program logic
 
 newtype DOI = DOI ByteString deriving Show
 
-renderLongDOI :: DOI -> ByteString
-renderLongDOI (DOI x) = "https://doi.org/" <> x
+data DOIShape = Short | Long
 
-renderShortDOI :: DOI -> ByteString
-renderShortDOI (DOI x) = x
+renderDOI :: DOIShape -> DOI -> ByteString
+renderDOI Short (DOI x) = x
+renderDOI Long (DOI x) = "https://doi.org/" <> x
 
 runAADR2DOI :: AADR2DOIOptions -> IO ()
-runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
+runAADR2DOI (AADR2DOIOptions toLookup doiShape aadrVersion outFile) = do
     -- download html document
     hPutStrLn stderr $ "Downloading citation list for AADR version " ++ aadrVersion
     httpman <- H.newManager H.tlsManagerSettings
@@ -173,7 +190,7 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
                 ListAll -> do
                     hPutStrLn stderr "Preparing table output"
                     hPutStrLn stderr "---"
-                    print papersHashMap
+                    mapM_ (\(k,d) -> B.putStr $ k <> "\t" <> renderDOI doiShape d <> "\n") presumablyValidPapers
                 Keys requestedKeys -> do
                     B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
@@ -191,9 +208,9 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
                 performLookup :: M.HashMap ByteString DOI -> ByteString -> IO ()
                 performLookup papersHashMap x = case M.lookup x papersHashMap of
                     Nothing -> hPutStrLn stderr $ renderAADR2DOIException $ KeyNotThereException x
-                    Just x  -> case outFile of
-                        Nothing -> B.putStr $ renderLongDOI x <> "\n"
-                        Just p  -> B.appendFile p $ renderLongDOI x <> "\n"
+                    Just d  -> case outFile of
+                        Nothing -> B.putStr $ renderDOI doiShape d <> "\n"
+                        Just p  -> B.appendFile p $ renderDOI doiShape d <> "\n"
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
