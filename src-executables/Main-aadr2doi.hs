@@ -69,7 +69,7 @@ runCmd o = case o of
 optParserInfo :: OP.ParserInfo Options
 optParserInfo = OP.info (OP.helper <*> versionOption <*> optParser) (
     OP.briefDesc <>
-    OP.progDesc "..."
+    OP.progDesc "Resolve the paper keys used by the AADR to DOIs"
     )
 
 versionOption :: OP.Parser (a -> a)
@@ -91,7 +91,7 @@ optParsePaperKey :: OP.Parser [ByteString]
 optParsePaperKey = OP.option (OP.eitherReader readKeysString) (
     OP.long "keys" <>
     OP.short 'k' <>
-    OP.help "..."
+    OP.help "Paper keys to resolve. Multiple entries separated by comma, so e.g. \"SaupeScheibCurrBio2021,RobbeetsNingNature2021\""
     )
     where
         readKeysString :: String -> Either String [ByteString]
@@ -101,35 +101,38 @@ optParseKeyFile :: OP.Parser FilePath
 optParseKeyFile = OP.strOption (
     OP.long "inFile" <>
     OP.short 'i' <>
-    OP.help "..."
+    OP.help "File with paper keys to resolve. One key per line"
     )
 
 optParseListAll :: OP.Parser ()
 optParseListAll = OP.flag' () (
     OP.long "list" <>
     OP.short 'l' <>
-    OP.help "..."
+    OP.help "Don't resolve any keys, just return a list of all available papers with their keys and DOIs"
     )
 
 optParseDOIOutShape :: OP.Parser DOIShape
 optParseDOIOutShape = OP.option (OP.eitherReader readDOIShape) (
     OP.long "doiShape" <>
-    OP.help "..." <>
-    OP.value Long
+    OP.short 's' <>
+    OP.help "Return DOIs as URL (\"Long\") or just with the id string (\"Short\")" <>
+    OP.value Long <>
+    OP.showDefault
     )
     where
         readDOIShape :: String -> Either String DOIShape
         readDOIShape s = case s of
-            "short" -> Right Short
-            "long"  -> Right Long
+            "Short" -> Right Short
+            "Long"  -> Right Long
             _       -> Left "must be short or long"
 
 
 optParseAADRVersion :: OP.Parser String
 optParseAADRVersion = OP.strOption (
     OP.long "aadrVersion" <>
-    OP.help "One of: 54.1, 52.2, 50.0, 50.0, 44.3, 42.4" <>
-    OP.value "54.1"
+    OP.help "The AADR version to be queried. As of January 2023 one of: \"54.1\", \"52.2\", \"50.0\", \"50.0\", \"44.3\", \"42.4\"" <>
+    OP.value "54.1" <>
+    OP.showDefault
     )
 
 optParseOutFile :: OP.Parser (Maybe FilePath)
@@ -144,7 +147,7 @@ optParseOutFile = OP.option (Just <$> OP.str) (
 
 newtype DOI = DOI ByteString deriving Show
 
-data DOIShape = Short | Long
+data DOIShape = Short | Long deriving Show
 
 renderDOI :: DOIShape -> DOI -> ByteString
 renderDOI Short (DOI x) = x
