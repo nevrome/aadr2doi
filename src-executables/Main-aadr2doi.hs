@@ -1,14 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData        #-}
 
---import           Paths_aadr2doi                     (version)
+import           Paths_aadr2doi          (version)
 
 import           Control.Exception       (Exception, catch, throwIO)
 import           Control.Exception.Base  (try)
 import           Data.Bits               (Bits (xor))
 import           Data.ByteString         (ByteString)
 import qualified Data.ByteString         as B
+import qualified Data.ByteString.Char8   as BC8
 import qualified Data.ByteString.Lazy    as BSL
+import           Data.ByteString.UTF8    (fromString)
 import qualified Data.HashMap.Strict     as M
 import           Data.Version            (makeVersion, showVersion)
 import qualified Network.HTTP.Client     as H
@@ -17,16 +19,11 @@ import qualified Options.Applicative     as OP
 import           System.Exit             (exitFailure)
 import           System.IO               (hGetEncoding, hPutStrLn, stderr,
                                           stdout)
-import           Text.Regex.TDFA         ((=~))
 import qualified Text.Regex.TDFA         as R
-import Data.ByteString.UTF8 (fromString)
-import qualified Data.ByteString.Char8 as BC8
-
-version = makeVersion [0,0,0]
+import           Text.Regex.TDFA         ((=~))
 
 -- data types
 
--- different exceptions for aadr2doi
 data AADR2DOIException =
       WebAccessException H.HttpException
     | KeyNotThereException ByteString
@@ -40,12 +37,12 @@ renderAADR2DOIException (WebAccessException e) =
 
 instance Exception AADR2DOIException
 
-data Options = CmdAADR2DOI AADR2DOIOptions
+newtype Options = CmdAADR2DOI AADR2DOIOptions
 
 data AADR2DOIOptions = AADR2DOIOptions {
-      _requested :: DOIRequest
+      _requested   :: DOIRequest
     , _aadrVersion :: String
-    , _outFile :: Maybe FilePath
+    , _outFile     :: Maybe FilePath
 }
 
 data DOIRequest = ListAll | Keys [ByteString] | KeyFile FilePath
@@ -126,7 +123,7 @@ optParseOutFile = OP.option (Just <$> OP.str) (
     OP.value Nothing
     )
 
------
+-- program logic
 
 newtype DOI = DOI ByteString deriving Show
 
@@ -136,9 +133,6 @@ renderLongDOI (DOI x) = "https://doi.org/" <> x
 renderShortDOI :: DOI -> ByteString
 renderShortDOI (DOI x) = x
 
---makeDOI :: ByteString -> DOI
---makeDOI x = DOI (B.unpack x)
-
 runAADR2DOI :: AADR2DOIOptions -> IO ()
 runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
     -- download html document
@@ -147,6 +141,7 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
     let request = H.parseRequest_ $ "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v" ++ aadrVersion ++ ".html"
     let req = H.setQueryString [("q", Just "r")] request
     eitherResponse <- (try $ H.httpLbs req httpman) :: IO (Either H.HttpException (H.Response BSL.ByteString))
+    -- stop on error
     case eitherResponse of
         Left x -> throwIO $ WebAccessException x
         Right response -> do
@@ -163,7 +158,7 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
             let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
                 paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
                 paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
-                -- see: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
+                -- about this regex: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
                 paperDOIs = map (\x -> DOI $ removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw
                 -- debugging:
                 --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
@@ -198,7 +193,7 @@ runAADR2DOI (AADR2DOIOptions toLookup aadrVersion outFile) = do
                     Nothing -> hPutStrLn stderr $ renderAADR2DOIException $ KeyNotThereException x
                     Just x  -> case outFile of
                         Nothing -> B.putStr $ renderLongDOI x <> "\n"
-                        Just p -> B.appendFile p $ renderLongDOI x <> "\n"
+                        Just p  -> B.appendFile p $ renderLongDOI x <> "\n"
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
