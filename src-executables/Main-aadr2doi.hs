@@ -24,11 +24,8 @@ import qualified Text.Regex.TDFA         as R
 version = makeVersion [0,0,0]
 
 -- data types
-data AADR2DOIoptions = AADR2DOIoptions ByteString
 
-data Options = CmdAADR2DOI AADR2DOIoptions
-
--- | Different exceptions for aadr2doi
+-- different exceptions for aadr2doi
 data AADR2DOIException =
       WebAccessException H.HttpException
     | KeyNotThereException ByteString
@@ -41,6 +38,13 @@ renderAADR2DOIException (WebAccessException e) =
     "Error: Can't connect to the AADR website\n" ++ show e
 
 instance Exception AADR2DOIException
+
+data AADR2DOIOptions = AADR2DOIOptions {
+      _requestedPaperKeys :: ByteString
+    , _aadrVersion :: String
+}
+
+data Options = CmdAADR2DOI AADR2DOIOptions
 
 -- CLI interface configuration
 main :: IO ()
@@ -72,8 +76,9 @@ versionOption = OP.infoOption (showVersion version) (OP.long "version" <> OP.hel
 optParser :: OP.Parser Options
 optParser = CmdAADR2DOI <$> aadr2doiOptParser
 
-aadr2doiOptParser :: OP.Parser AADR2DOIoptions
-aadr2doiOptParser = AADR2DOIoptions <$> optParsePaperKey
+aadr2doiOptParser :: OP.Parser AADR2DOIOptions
+aadr2doiOptParser = AADR2DOIOptions <$> optParsePaperKey
+                                    <*> optAADRVersion
 
 optParsePaperKey :: OP.Parser ByteString
 optParsePaperKey = OP.strOption (
@@ -82,6 +87,12 @@ optParsePaperKey = OP.strOption (
     OP.help "..."
     )
 
+optAADRVersion :: OP.Parser String
+optAADRVersion = OP.strOption (
+    OP.long "aadrVersion" <>
+    OP.help "One of: 54.1, 52.2, 50.0, 50.0, 44.3, 42.4" <>
+    OP.value "54.1"
+    )
 
 -----
 
@@ -96,12 +107,13 @@ renderShortDOI (DOI x) = x
 --makeDOI :: ByteString -> DOI
 --makeDOI x = DOI (B.unpack x)
 
-runAADR2DOI :: AADR2DOIoptions -> IO ()
-runAADR2DOI (AADR2DOIoptions toLookup) = do
+runAADR2DOI :: AADR2DOIOptions -> IO ()
+runAADR2DOI (AADR2DOIOptions toLookup aadrVersion) = do
     -- download html document
-    hPutStrLn stderr "Downloading citation list"
+    hPutStrLn stderr $ "Downloading citation list for AADR version " ++ aadrVersion
     httpman <- H.newManager H.tlsManagerSettings
-    let req = H.setQueryString [("q", Just "r")] "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v54.1.html"
+    let request = H.parseRequest_ $ "https://reichdata.hms.harvard.edu/pub/datasets/amh_repo/curated_releases/index_v" ++ aadrVersion ++ ".html"
+    let req = H.setQueryString [("q", Just "r")] request
     eitherResponse <- (try $ H.httpLbs req httpman) :: IO (Either H.HttpException (H.Response BSL.ByteString))
     case eitherResponse of
         Left x -> throwIO $ WebAccessException x
