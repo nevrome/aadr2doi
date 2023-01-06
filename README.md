@@ -13,8 +13,8 @@ A small cli tool to resolve publication keys used in the [Allen Ancient DNA Reso
 I built this package for a workflow to resolve AADR paper keys to DOIs and then DOIs to BibTeX with the [doi2bib](https://github.com/bibcure/doi2bib) CLI tool. For example:
 
 ```bash
-# Resolve DOIs for three papers and store them in DOIs.txt
-aadr2doi -k "OlaldeScience2019,WangNatureCommunications2019,FernandesNatureEcologyEvolution2020" --aadrVersion 50.0 -o DOIs.txt
+# Resolve DOIs for two papers and store them in DOIs.txt
+aadr2doi -k "OlaldeScience2019,WangNatureCommunications2019" --aadrVersion 50.0 -o DOIs.txt
 # Resolve the DOIs to BibTeX entries
 doi2bib -i DOIs.txt -o bibtex.bib
 ```
