@@ -1,6 +1,6 @@
 name:                aadr2doi
 version:             0.0.1.0
-synopsis:            A package to get DOIs from AADR publication keys
+synopsis:            A CLI tool to get DOIs from AADR publication keys
 homepage:            https://github.com/nevrome/aadr2doi
 category:            Archaeoinformatics
 author:              Clemens Schmid
@@ -23,7 +23,7 @@ executable aadr2doi
       src-executables
     build-depends:
         base
-      , optparse-applicative >= 0.16 && < 0.18
+      , optparse-applicative
       , filepath
       , http-client
       , http-client-tls
