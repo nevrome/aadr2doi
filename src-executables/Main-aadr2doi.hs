@@ -29,7 +29,7 @@ data AADR2DOIException =
 
 renderAADR2DOIException :: AADR2DOIException -> String
 renderAADR2DOIException (KeyNotThereException s) =
-    "Error: Paper key " ++ show s ++ " not available or no DOI on the AADR website"
+    "Error: Paper key " ++ show s ++ " could not be resolved."
 renderAADR2DOIException (WebAccessException e) =
     "Error: Can't connect to the AADR website\n" ++ show e
 
@@ -210,18 +210,20 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = d
                         Nothing -> mapM_ B.putStr table
                         Just p  -> mapM_ (B.appendFile p) table
                 Keys requestedKeys -> do
-                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
+                    let keys = map trimWS requestedKeys
+                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " keys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    mapM_ (performLookup papersHashMap . trimWS) requestedKeys
+                    mapM_ (performLookup papersHashMap) keys
                 KeyFile p -> do
-                    hPutStrLn stderr $ "Reading file " ++ p
+                    hPutStrLn stderr $ "Reading key file " ++ p
                     inputFromFile <- B.readFile p
                     let requestedKeys = BC8.lines inputFromFile
-                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
+                    let keys = map trimWS requestedKeys
+                    B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " keys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    mapM_ (performLookup papersHashMap . trimWS) requestedKeys
+                    mapM_ (performLookup papersHashMap) keys
             where
                 performLookup :: M.HashMap ByteString DOI -> ByteString -> IO ()
                 performLookup papersHashMap x = case M.lookup x papersHashMap of
