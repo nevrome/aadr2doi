@@ -21,6 +21,8 @@ doi2bib -i DOIs.txt -o bibtex.bib
 
 Make sure to set the correct `--aadrVersion`. Later versions are not reliable supersets of earlier versions.
 
+The output .bib file is not perfect - consider validating and cleaning it with [BibTeX Tidy](https://flamingtempura.github.io/bibtex-tidy).
+
 ### Interface
 
 ```
