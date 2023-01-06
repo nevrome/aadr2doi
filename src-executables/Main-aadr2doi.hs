@@ -174,20 +174,24 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = d
             -- extract paper paragraphs
             hPutStrLn stderr "Extracting individual papers"
             let (_,referenceSection) = B.breakSubstring "References:" responseBody
-                separatorIndizes = map fst (R.getAllMatches (referenceSection =~ ("((\\.|<\\/h3>)(<br>|\\\n)+\\[)" :: ByteString)) :: [(Int, Int)])
+                splitRegex = ("((\\.|<\\/h3>|-->)([ ]*<[\\/]?br>[ ]*|[ ]*\\\n[ ]*)+\\[)" :: ByteString)
+                separatorIndizes = map fst (R.getAllMatches (referenceSection =~ splitRegex) :: [(Int, Int)])
                 fromToIndizes = zip separatorIndizes (tail separatorIndizes ++ [B.length referenceSection])
                 paperStrings = map (\(start,stop) -> B.take (stop - start) $ B.drop start referenceSection) fromToIndizes
             hPutStrLn stderr $ "Found " ++ show (length paperStrings) ++ " papers"
             -- extract paper keys and dois
             hPutStrLn stderr "Extracting paper keys and DOIs"
-            let paperKeysRaw = map (\x -> x =~ ("\\[[^ ]+\\]" :: ByteString)) paperStrings :: [ByteString]
+            let paperKeyRegex = "\\[[^ ]+\\]" :: ByteString
+                paperKeysRaw = map (=~ paperKeyRegex) paperStrings :: [ByteString]
                 paperKeys = map (removeFromStartAndEnd 1 1) paperKeysRaw
-                paperDOIsRaw = map (\x -> x =~ ("(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString)) paperStrings :: [ByteString]
+                paperDOIRegex = "(doi|DOI):[ ]?[^ ]+(\\. |<|$)" :: ByteString
+                paperDOIsRaw = map (=~ paperDOIRegex) paperStrings :: [ByteString]
                 -- about this regex: https://stackoverflow.com/questions/27910/finding-a-doi-in-a-document-or-page
                 paperDOIs = map (\x -> DOI $ removeTrailingDotAndSpace $ x =~ ("10\\.[0-9]{4,}[^ \"/<>]*/[^ \"<>]+" :: ByteString)) paperDOIsRaw
-                -- debugging:
-                --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
-                --mapM_ (\x -> print x) hu
+            -- debugging:
+            --let hu = zip3 paperKeys paperDOIsRaw paperDOIs
+            --mapM_ (\x -> print x) hu
+            --mapM_ print paperStrings
             -- define hashmap of valid papers
             hPutStrLn stderr "Removing papers with missing DOI"
             let presumablyValidPapers = filter (\(k,DOI d) -> not (B.null k) && not (B.null d) ) $ zip paperKeys paperDOIs
@@ -209,7 +213,7 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = d
                     B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    mapM_ (performLookup papersHashMap) requestedKeys
+                    mapM_ (performLookup papersHashMap . trimWS) requestedKeys
                 KeyFile p -> do
                     hPutStrLn stderr $ "Reading file " ++ p
                     inputFromFile <- B.readFile p
@@ -217,7 +221,7 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = d
                     B.hPutStr stderr $ "Requested keys: " <> B.intercalate ", " requestedKeys <> "\n"
                     hPutStrLn stderr "Performing DOI lookup for each requested key"
                     hPutStrLn stderr "---"
-                    mapM_ (performLookup papersHashMap) requestedKeys
+                    mapM_ (performLookup papersHashMap . trimWS) requestedKeys
             where
                 performLookup :: M.HashMap ByteString DOI -> ByteString -> IO ()
                 performLookup papersHashMap x = case M.lookup x papersHashMap of
@@ -233,6 +237,9 @@ runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = d
                     case outFile of
                         Nothing -> B.putStr outLine
                         Just p  -> B.appendFile p outLine
+
+trimWS :: ByteString -> ByteString
+trimWS x = B.dropWhileEnd (== 32) $ B.dropWhile (== 32) x
 
 removeFromStartAndEnd :: Int -> Int -> ByteString -> ByteString
 removeFromStartAndEnd fromStart fromEnd xs = B.drop fromStart $ B.take (B.length xs - fromEnd) xs
