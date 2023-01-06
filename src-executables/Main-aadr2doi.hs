@@ -19,6 +19,7 @@ import           System.Exit             (exitFailure)
 import           System.IO               (hPutStrLn, stderr)
 import qualified Text.Regex.TDFA         as R
 import           Text.Regex.TDFA         ((=~))
+import Network.HTTP.Client (parseUrl)
 
 -- data types
 
@@ -115,16 +116,16 @@ optParseDOIOutShape :: OP.Parser DOIShape
 optParseDOIOutShape = OP.option (OP.eitherReader readDOIShape) (
     OP.long "doiShape" <>
     OP.short 's' <>
-    OP.help "Return DOIs as URL (\"Long\") or just with the id string (\"Short\")" <>
-    OP.value Long <>
+    OP.help "Return DOIs as URL (\"URL\") or just with the id string (\"Short\")" <>
+    OP.value URL <>
     OP.showDefault
     )
     where
         readDOIShape :: String -> Either String DOIShape
         readDOIShape s = case s of
             "Short" -> Right Short
-            "Long"  -> Right Long
-            _       -> Left "must be short or long"
+            "URL"  -> Right URL
+            _       -> Left "must be URL or Short"
 
 optParsePrintKey :: OP.Parser Bool
 optParsePrintKey = OP.switch (
@@ -152,11 +153,11 @@ optParseOutFile = OP.option (Just <$> OP.str) (
 
 newtype DOI = DOI ByteString deriving Show
 
-data DOIShape = Short | Long deriving Show
+data DOIShape = Short | URL deriving Show
 
 renderDOI :: DOIShape -> DOI -> ByteString
 renderDOI Short (DOI x) = x
-renderDOI Long (DOI x)  = "https://doi.org/" <> x
+renderDOI URL (DOI x)  = "https://doi.org/" <> x
 
 runAADR2DOI :: AADR2DOIOptions -> IO ()
 runAADR2DOI (AADR2DOIOptions toLookup doiShape printKey aadrVersion outFile) = do
